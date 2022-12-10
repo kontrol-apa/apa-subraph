@@ -1,6 +1,13 @@
-type ExampleEntity @entity {
+type ApaInfo @entity {
   id: Bytes!
-  count: BigInt!
   owner: Bytes! # address
-  approved: Bytes! # address
+  rarity: BigInt!
+  imageId: BigInt!
+  tokenId : BigInt!
+}
+
+type CatchUpHelper @entity {
+  id: Bytes!
+  lastSyncedTokenId: Int!
+  syncCompleted: Boolean
 }

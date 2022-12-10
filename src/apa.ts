@@ -1,98 +1,89 @@
-import { BigInt } from "@graphprotocol/graph-ts"
+import { Address, BigInt, ByteArray, Bytes, json, JSONValue, log} from "@graphprotocol/graph-ts"
 import {
   APA,
-  Approval,
-  ApprovalForAll,
-  Claim,
-  OwnershipTransferred,
-  Redeem,
-  Transfer
+  Transfer,
+  Approval
 } from "../generated/APA/APA"
-import { ExampleEntity } from "../generated/schema"
+import { ApaInfo, CatchUpHelper } from "../generated/schema"
+import {apaOffchainData} from "./off-chain";
+let apaOffchainDataList = json.fromString(apaOffchainData).toArray();
+
 
 export function handleApproval(event: Approval): void {
-  // Entities can be loaded from the store using a string ID; this ID
-  // needs to be unique across all entities of the same type
-  let entity = ExampleEntity.load(event.transaction.from)
+    catchUp(event.address);
+ }
 
-  // Entities only exist after they have been saved to the store;
-  // `null` checks allow to create entities on demand
-  if (!entity) {
-    entity = new ExampleEntity(event.transaction.from)
-
-    // Entity fields can be set using simple assignments
-    entity.count = BigInt.fromI32(0)
-  }
-
-  // BigInt and BigDecimal math are supported
-  entity.count = entity.count + BigInt.fromI32(1)
-
-  // Entity fields can be set based on event parameters
-  entity.owner = event.params.owner
-  entity.approved = event.params.approved
-
-  // Entities can be written to the store with `.save()`
-  entity.save()
-
-  // Note: If a handler doesn't require existing field values, it is faster
-  // _not_ to load the entity from the store. Instead, create it fresh with
-  // `new Entity(...)`, set the fields that should be updated and save the
-  // entity back to the store. Fields that were not set or unset remain
-  // unchanged, allowing for partial updates to be applied.
-
-  // It is also possible to access smart contracts from mappings. For
-  // example, the contract that has emitted the event can be connected to
-  // with:
-  //
-  // let contract = Contract.bind(event.address)
-  //
-  // The following functions can then be called on this contract to access
-  // state variables and other data:
-  //
-  // - contract.INITIAL_CLAIM_PRICE(...)
-  // - contract.MAX_MINTABLE(...)
-  // - contract.MAX_PER_CLAIM(...)
-  // - contract.POST_5000_PRICE(...)
-  // - contract.ROYALTY_VALUE(...)
-  // - contract.airdropNumber(...)
-  // - contract.balanceOf(...)
-  // - contract.canClaim(...)
-  // - contract.canClaimAirdrop(...)
-  // - contract.getApproved(...)
-  // - contract.getClaimedAirdrops(...)
-  // - contract.getCurrentReward(...)
-  // - contract.getImageIDs(...)
-  // - contract.getNextBatchPrice(...)
-  // - contract.getProjectedReward(...)
-  // - contract.getRecognizedContracts(...)
-  // - contract.getRewards(...)
-  // - contract.givenRewards(...)
-  // - contract.isApprovedForAll(...)
-  // - contract.isContractRecognized(...)
-  // - contract.minted(...)
-  // - contract.name(...)
-  // - contract.numHonoraries(...)
-  // - contract.owner(...)
-  // - contract.ownerOf(...)
-  // - contract.post5000Extra(...)
-  // - contract.royaltyInfo(...)
-  // - contract.supportsInterface(...)
-  // - contract.symbol(...)
-  // - contract.tokenByIndex(...)
-  // - contract.tokenOfOwnerByIndex(...)
-  // - contract.tokenURI(...)
-  // - contract.totalProjectedRewards(...)
-  // - contract.totalSupply(...)
-  // - contract.withdrawableBalance(...)
-  // - contract.withdrawn(...)
+ export function handleApprovalForAll(event: Approval): void {
+  catchUp(event.address);
 }
 
-export function handleApprovalForAll(event: ApprovalForAll): void {}
+export function handleTransfer(event: Transfer): void {
+  catchUp(event.address);
+  let apaInfo = ApaInfo.load(Bytes.fromByteArray(ByteArray.fromBigInt(event.params.tokenId)));
+  if(apaInfo) {
+    apaInfo.owner = event.params.to; // is this possible TODO
+    apaInfo.save();
+  }
+  else {
+    setApaInfo(event.params.to,event.params.tokenId);
+  }
+}
 
-export function handleClaim(event: Claim): void {}
+function catchUp(contractAddy : Address): void {
+  if(!contractAddy.equals(Address.fromString('0x880Fe52C6bc4FFFfb92D6C03858C97807a900691'))) { // no catch up on test net!
+    return;
+  }
+  let catchUpEntity = CatchUpHelper.load(Bytes.fromByteArray(ByteArray.fromUTF8("Helper")));
+  let lastSyncedTokenId = 0;
+  let batchSize = 100;
+  const collectionSize = 10047;
+  if(catchUpEntity) {
+    if(catchUpEntity.syncCompleted) {
+      return;
+    }
+    lastSyncedTokenId = catchUpEntity.lastSyncedTokenId;
+    catchUpEntity.lastSyncedTokenId += batchSize;
+  }
+  else {
+    catchUpEntity = new CatchUpHelper(Bytes.fromByteArray(ByteArray.fromUTF8("Helper")));
+    catchUpEntity.lastSyncedTokenId = lastSyncedTokenId;
+    catchUpEntity.syncCompleted = false;
+  }
+  log.debug("Here {}", ['lastSyncedTokenId']);
+    
+  if(lastSyncedTokenId + batchSize > collectionSize) {
+    batchSize = collectionSize - lastSyncedTokenId;
+    catchUpEntity.syncCompleted = true;
 
-export function handleOwnershipTransferred(event: OwnershipTransferred): void {}
+  }
 
-export function handleRedeem(event: Redeem): void {}
+  let APAContract = APA.bind(contractAddy);
+  for (let index = lastSyncedTokenId; index < batchSize + lastSyncedTokenId; index++) {
+    let apaInfo = ApaInfo.load(Bytes.fromByteArray(ByteArray.fromBigInt(BigInt.fromI32(index))));
+    if(apaInfo){
+      continue; // already synced by some other mean
+    }
+    const ownerAddy = APAContract.ownerOf(BigInt.fromI32(index));
+    setApaInfo(ownerAddy,BigInt.fromI32(index));
+  }
+  catchUpEntity.save();
+}
 
-export function handleTransfer(event: Transfer): void {}
+function setApaInfo(owner: Address, tokenId: BigInt): void {
+  let apaInfo = new ApaInfo(Bytes.fromByteArray(ByteArray.fromBigInt(tokenId)));
+  const tokenData = apaOffchainDataList[tokenId.toI32()];
+  apaInfo.tokenId = tokenId;
+  apaInfo.imageId = getNumberTrait(tokenData, 'imageId');
+  apaInfo.rarity = getNumberTrait(tokenData, 'rarity');
+  apaInfo.tokenId = getNumberTrait(tokenData, 'tokenId');
+  apaInfo.owner = Bytes.fromHexString(owner.toHexString());
+  apaInfo.save();
+}
+
+
+export function getNumberTrait(value: JSONValue, field: string): BigInt {
+  return value
+    .toObject()
+    .get(field)!
+    .toBigInt();
+}

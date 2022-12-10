@@ -1,7 +1,14 @@
 {
   "avalanche": {
     "APA": {
-      "address": "0x880Fe52C6bc4FFFfb92D6C03858C97807a900691"
+      "address": "0x880Fe52C6bc4FFFfb92D6C03858C97807a900691",
+      "startBlock" : 22440365
+    }
+  },
+  "fuji": {
+    "APA": {
+      "address": "0xD3323983C02adB1fE001D24327dF968194C76e6a",
+      "startBlock" : 16586991
     }
   }
 }
