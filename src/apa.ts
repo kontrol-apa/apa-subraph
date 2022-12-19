@@ -70,7 +70,8 @@ function catchUp(contractAddy : Address): void {
 }
 
 function setApaInfo(owner: Address, tokenId: BigInt): void {
-  let apaInfo = new ApaInfo(Bytes.fromByteArray(ByteArray.fromBigInt(tokenId)));
+  const temp = tokenId.toI32();
+  let apaInfo = new ApaInfo(Bytes.fromByteArray(ByteArray.fromBigInt(BigInt.fromI32(temp))));
   const tokenData = apaOffchainDataList[tokenId.toI32()];
   apaInfo.tokenId = tokenId;
   apaInfo.imageId = getNumberTrait(tokenData, 'imageId');
